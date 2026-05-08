@@ -108,14 +108,3 @@ Converted into binary format for modeling.
 
 ---
 
-# 🚀 Current Status
-
-- Data cleaning completed  
-- EDA completed  
-- Feature encoding completed  
-
-Next steps:
-- Feature selection  
-- Model training  
-- Model evaluation  
-- Prediction system development
