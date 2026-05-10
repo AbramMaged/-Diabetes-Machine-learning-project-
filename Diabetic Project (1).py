@@ -6,12 +6,6 @@ import seaborn as sns
 import os
 import sys
 
-# Ensure the script runs in its own directory
-os.chdir(os.path.dirname(os.path.abspath(__file__)))
-
-# Fix UnicodeEncodeError for emojis in Windows console
-sys.stdout.reconfigure(encoding='utf-8')
-
 # %%
 df= pd.read_csv('diabetic_data.csv')
 
