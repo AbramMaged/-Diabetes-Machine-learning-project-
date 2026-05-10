@@ -3,6 +3,14 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
+import os
+import sys
+
+# Ensure the script runs in its own directory
+os.chdir(os.path.dirname(os.path.abspath(__file__)))
+
+# Fix UnicodeEncodeError for emojis in Windows console
+sys.stdout.reconfigure(encoding='utf-8')
 
 # %%
 df= pd.read_csv('diabetic_data.csv')
@@ -112,6 +120,9 @@ df.duplicated().sum()
 
 # %%
 
+# %%
+# Drop duplicate patients to prevent data leakage
+df.drop_duplicates(subset=['patient_nbr'], keep='first', inplace=True)
 df.drop(columns=['encounter_id', 'patient_nbr', 'weight', 'payer_code'], inplace=True)
 
 
@@ -119,13 +130,47 @@ df.drop(columns=['encounter_id', 'patient_nbr', 'weight', 'payer_code'], inplace
 df['race'] = df['race'].fillna(df['race'].mode()[0])
 
 # %%
-df['medical_specialty'] = df['medical_specialty'].ffill().bfill()
+# Fill missing medical_specialty with 'Unknown' instead of ffill
+df['medical_specialty'] = df['medical_specialty'].fillna('Unknown')
 
 # %%
-df[['max_glu_serum', 'A1Cresult']] = df[['max_glu_serum', 'A1Cresult']].ffill().bfill()
+# Fill missing lab results with 'None' instead of ffill
+df[['max_glu_serum', 'A1Cresult']] = df[['max_glu_serum', 'A1Cresult']].fillna('None')
 
 # %%
+import math
+def categorize_diagnosis(code):
+    if code == 'Unknown' or pd.isna(code) or code == '?':
+        return 'Unknown'
+    try:
+        if code.startswith('V') or code.startswith('E'):
+            return 'External/Supplemental'
+        
+        num_code = float(code)
+        if 390 <= num_code <= 459 or num_code == 785:
+            return 'Circulatory'
+        elif 460 <= num_code <= 519 or num_code == 786:
+            return 'Respiratory'
+        elif 520 <= num_code <= 579 or num_code == 787:
+            return 'Digestive'
+        elif math.floor(num_code) == 250:
+            return 'Diabetes'
+        elif 800 <= num_code <= 999:
+            return 'Injury'
+        elif 710 <= num_code <= 739:
+            return 'Musculoskeletal'
+        elif 580 <= num_code <= 629 or num_code == 788:
+            return 'Genitourinary'
+        elif 140 <= num_code <= 239:
+            return 'Neoplasms'
+        else:
+            return 'Other'
+    except:
+        return 'Other'
+
 df[['diag_1', 'diag_2', 'diag_3']] = df[['diag_1', 'diag_2', 'diag_3']].fillna('Unknown')
+for col in ['diag_1', 'diag_2', 'diag_3']:
+    df[col] = df[col].apply(categorize_diagnosis)
 
 # %%
 df.isna().sum()
@@ -619,8 +664,8 @@ df = pd.get_dummies(df, columns=[c for c in categorical_cols if c in df.columns]
 # %%
 df['readmitted'] = df['readmitted'].map({
     'NO': 0,
-    '<30': 1,
-    '>30': 2
+    '>30': 0,
+    '<30': 1
 })
 
 # %%
@@ -761,9 +806,8 @@ print(df['readmitted'].value_counts(normalize=True).round(4) * 100)
 # Target classes:
 # | Value | Meaning |
 # |-------|---------|
-# | 0 | NO readmission |
+# | 0 | Not readmitted within 30 days |
 # | 1 | Readmitted within 30 days |
-# | 2 | Readmitted after 30 days |
 # %%
 # ── 2. Feature / Target Split ────────────────────────────────────────────
 X = df.drop(columns=['readmitted'])
@@ -988,41 +1032,36 @@ elif cv_scores.std() < 0.05:
 else:
     print("   ❌ High variance — consider more regularisation or different model.")
 # %% [markdown]
-# # 1️⃣1️⃣ ROC Curve & AUC (Multiclass — One-vs-Rest)
+# # 1️⃣1️⃣ ROC Curve & AUC (Binary Classification)
 #
-# For multiclass classification we compute the ROC curve per class using
-# the One-vs-Rest strategy and report the macro-average AUC.
+# For binary classification we compute the ROC curve and AUC.
 # %%
 # ── 11. ROC Curve & AUC ──────────────────────────────────────────────────
 from sklearn.metrics import roc_curve, auc
-from sklearn.preprocessing import label_binarize
-classes = sorted(y.unique())
-y_test_bin = label_binarize(y_test, classes=classes)
-# Get probability predictions
+
 if hasattr(best_final_model, 'predict_proba'):
-    y_prob = best_final_model.predict_proba(X_test_scaled)
+    y_prob = best_final_model.predict_proba(X_test_scaled)[:, 1]
 else:
     y_prob = best_final_model.decision_function(X_test_scaled)
+
 fig, ax = plt.subplots(figsize=(9, 7))
-colors = ['#2196F3', '#FF5722', '#4CAF50']
-auc_scores = []
-for i, cls in enumerate(classes):
-    fpr, tpr, _ = roc_curve(y_test_bin[:, i], y_prob[:, i])
-    roc_auc = auc(fpr, tpr)
-    auc_scores.append(roc_auc)
-    label_text = {0: 'NO readmission', 1: '<30 days', 2: '>30 days'}.get(cls, str(cls))
-    ax.plot(fpr, tpr, color=colors[i], lw=2,
-            label=f'Class {cls} — {label_text} (AUC = {roc_auc:.3f})')
+
+fpr, tpr, _ = roc_curve(y_test, y_prob)
+roc_auc = auc(fpr, tpr)
+
+ax.plot(fpr, tpr, color='#FF5722', lw=2,
+        label=f'<30 days Readmission (AUC = {roc_auc:.3f})')
+
 ax.plot([0, 1], [0, 1], 'k--', lw=1, alpha=0.5)
 ax.set_xlabel('False Positive Rate', fontsize=12)
 ax.set_ylabel('True Positive Rate', fontsize=12)
-ax.set_title(f'📈 ROC Curves — {best_tuned_name}', fontsize=14, fontweight='bold')
-ax.legend(loc='lower right', fontsize=10)
+ax.set_title(f'📈 ROC Curve — {best_tuned_name}', fontsize=14, fontweight='bold')
+ax.legend(loc='lower right', fontsize=12)
 ax.grid(alpha=0.3)
 plt.tight_layout()
 plt.savefig('roc_curves.png', dpi=150, bbox_inches='tight')
 plt.show()
-print(f"\n📊 Macro-average AUC: {np.mean(auc_scores):.4f}")
+print(f"\n📊 AUC: {roc_auc:.4f}")
 # %% [markdown]
 # # 1️⃣2️⃣ Save Final Model & Scaler
 # %%
@@ -1065,9 +1104,8 @@ def predict_readmission(input_data, model_path='diabetes_model.pkl', scaler_path
     input_scaled = loaded_scaler.transform(input_df)
     prediction   = loaded_model.predict(input_scaled)[0]
     labels = {
-        0: '✅ NO Readmission',
+        0: '✅ Not Readmitted within 30 days',
         1: '⚠️ Readmitted within 30 days',
-        2: '🔁 Readmitted after 30 days',
     }
     result = labels.get(prediction, f'Unknown class ({prediction})')
     print(f"🩺 Prediction: {result}")
@@ -1085,8 +1123,8 @@ axes = axes.ravel()
 for idx, res in enumerate(results):
     cm = confusion_matrix(y_test, res['y_pred'])
     sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', ax=axes[idx],
-                xticklabels=['NO', '<30', '>30'],
-                yticklabels=['NO', '<30', '>30'])
+                xticklabels=['Other', '<30'],
+                yticklabels=['Other', '<30'])
     axes[idx].set_title(res['Model'], fontsize=12, fontweight='bold')
     axes[idx].set_xlabel('Predicted')
     axes[idx].set_ylabel('Actual')
@@ -1112,19 +1150,19 @@ plt.show()
 # ── 14-c. Class Distribution Chart ───────────────────────────────────────
 fig, axes = plt.subplots(1, 2, figsize=(12, 5))
 # Original distribution
-y.value_counts().sort_index().plot(kind='bar', ax=axes[0], color=['#4CAF50', '#FF9800', '#2196F3'],
+y.value_counts().sort_index().plot(kind='bar', ax=axes[0], color=['#4CAF50', '#FF9800'],
                                    edgecolor='black')
 axes[0].set_title('Original Class Distribution', fontsize=12, fontweight='bold')
 axes[0].set_xlabel('Readmitted')
 axes[0].set_ylabel('Count')
-axes[0].set_xticklabels(['0 — NO', '1 — <30', '2 — >30'], rotation=0)
+axes[0].set_xticklabels(['0 — Other', '1 — <30'], rotation=0)
 # After UnderSampling
 pd.Series(y_train_sm).value_counts().sort_index().plot(
-    kind='bar', ax=axes[1], color=['#4CAF50', '#FF9800', '#2196F3'], edgecolor='black')
+    kind='bar', ax=axes[1], color=['#4CAF50', '#FF9800'], edgecolor='black')
 axes[1].set_title('After UnderSampling (Training Set)', fontsize=12, fontweight='bold')
 axes[1].set_xlabel('Readmitted')
 axes[1].set_ylabel('Count')
-axes[1].set_xticklabels(['0 — NO', '1 — <30', '2 — >30'], rotation=0)
+axes[1].set_xticklabels(['0 — Other', '1 — <30'], rotation=0)
 plt.suptitle('📊 Target Class Distribution', fontsize=14, fontweight='bold')
 plt.tight_layout()
 plt.savefig('class_distribution.png', dpi=150, bbox_inches='tight')
@@ -1179,3 +1217,4 @@ plt.show()
 # *End of Machine Learning Pipeline — Diabetes Readmission Prediction System*
 
 
+a
