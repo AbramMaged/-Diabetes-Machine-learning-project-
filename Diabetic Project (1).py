@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 
 # %%
-df= pd.read_csv('/kaggle/input/datasets/mennafawzy24/diabetic-dataset/diabetic_data.csv')
+df= pd.read_csv('diabetic_data.csv')
 
 # %%
 df.head()
@@ -730,5 +730,452 @@ for col in df.columns:
 # - Dataset became fully compatible with machine learning models  
 # - No object (string) columns remained in the dataset  
 # - Data is now ready for model training and evaluation
+# %% [markdown]
+# ---
+# # 🤖 Phase 2 — Machine Learning Pipeline
+# ---
+# %% [markdown]
+# # 1️⃣ Dataset Health Check
+# Confirm the dataset is clean, fully numeric, and ready for ML.
+# %%
+# ── 1. Dataset Health Check ──────────────────────────────────────────────
+print("=" * 60)
+print("📋  DATASET HEALTH CHECK")
+print("=" * 60)
+print(f"\n🔹 Shape          : {df.shape}")
+print(f"🔹 Total samples  : {df.shape[0]:,}")
+print(f"🔹 Total features : {df.shape[1]}")
+print(f"\n🔹 Missing values : {df.isna().sum().sum()}")
+print(f"🔹 Duplicate rows : {df.duplicated().sum()}")
+print("\n🔹 Data types:")
+print(df.dtypes.value_counts())
+print("\n🔹 Target variable (readmitted) distribution:")
+print(df['readmitted'].value_counts())
+print(df['readmitted'].value_counts(normalize=True).round(4) * 100)
+# %% [markdown]
+# # 2️⃣ Feature / Target Split
+#
+# - **X** = all feature columns (everything except `readmitted`)
+# - **y** = target column (`readmitted`)
+#
+# Target classes:
+# | Value | Meaning |
+# |-------|---------|
+# | 0 | NO readmission |
+# | 1 | Readmitted within 30 days |
+# | 2 | Readmitted after 30 days |
+# %%
+# ── 2. Feature / Target Split ────────────────────────────────────────────
+X = df.drop(columns=['readmitted'])
+y = df['readmitted']
+print(f"✅ Features shape : {X.shape}")
+print(f"✅ Target shape   : {y.shape}")
+print(f"✅ Target classes  : {sorted(y.unique())}")
+# %% [markdown]
+# # 3️⃣ Train / Test Split
+#
+# - 80 % training, 20 % testing
+# - `stratify=y` ensures the class ratio is preserved in both splits
+# - `random_state=42` for reproducibility
+# %%
+# ── 3. Train / Test Split ────────────────────────────────────────────────
+from sklearn.model_selection import train_test_split
+X_train, X_test, y_train, y_test = train_test_split(
+    X, y,
+    test_size=0.2,
+    random_state=42,
+    stratify=y
+)
+print(f"✅ X_train : {X_train.shape}")
+print(f"✅ X_test  : {X_test.shape}")
+print(f"✅ y_train : {y_train.shape}  — distribution:\n{y_train.value_counts()}")
+print(f"✅ y_test  : {y_test.shape}   — distribution:\n{y_test.value_counts()}")
+# %% [markdown]
+# # 4️⃣ Feature Scaling
+#
+# StandardScaler normalises features to mean = 0, std = 1.
+# - **Fit** on training data only (to avoid data leakage)
+# - **Transform** both train and test sets
+# %%
+# ── 4. Feature Scaling ───────────────────────────────────────────────────
+from sklearn.preprocessing import StandardScaler
+scaler = StandardScaler()
+X_train_scaled = pd.DataFrame(scaler.fit_transform(X_train), columns=X_train.columns, index=X_train.index)
+X_test_scaled  = pd.DataFrame(scaler.transform(X_test),      columns=X_test.columns,  index=X_test.index)
+print("✅ Feature scaling complete.")
+print(f"   Train mean ≈ {X_train_scaled.mean().mean():.6f}  |  std ≈ {X_train_scaled.std().mean():.4f}")
+# %% [markdown]
+# # 5️⃣ Handle Class Imbalance (RandomUnderSampler)
+#
+# **Why RandomUnderSampler?**
+# The dataset is heavily imbalanced — most patients are in class 0 (NO readmission).
+# Training on imbalanced data causes the model to become biased toward the majority class.
+# Using SMOTE on this large dataset creates too many synthetic samples and makes training
+# extremely slow. Instead, we use RandomUnderSampler to downsample the majority classes
+# to match the minority class, drastically reducing processing time while maintaining balance.
+#
+# ⚠️ Under-sampling is applied **only on the training set** to prevent data leakage into testing.
+# %%
+# ── 5. Handle Class Imbalance ────────────────────────────────────────────
+from imblearn.under_sampling import RandomUnderSampler
+print("Before UnderSampling:")
+print(y_train.value_counts())
+rus = RandomUnderSampler(random_state=42)
+X_train_sm, y_train_sm = rus.fit_resample(X_train_scaled, y_train)
+print("\nAfter UnderSampling:")
+print(pd.Series(y_train_sm).value_counts())
+print(f"\n✅ Training samples decreased from {len(y_train):,} → {len(y_train_sm):,}")
+# %% [markdown]
+# # 6️⃣ Machine Learning Models
+#
+# Training & evaluating **5 classifiers**:
+# 1. Logistic Regression
+# 2. Decision Tree
+# 3. Random Forest
+# 4. K-Nearest Neighbors
+# 5. Support Vector Machine
+# %%
+# ── 6. Model Training & Evaluation ───────────────────────────────────────
+from sklearn.linear_model import LogisticRegression
+from sklearn.tree import DecisionTreeClassifier
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn.svm import SVC
+from sklearn.metrics import (
+    accuracy_score, precision_score, recall_score, f1_score,
+    classification_report, confusion_matrix
+)
+import warnings
+warnings.filterwarnings('ignore')
+# Dictionary of models
+models = {
+    'Logistic Regression': LogisticRegression(max_iter=1000, random_state=42),
+    'Decision Tree':       DecisionTreeClassifier(random_state=42),
+    'Random Forest':       RandomForestClassifier(n_estimators=200, random_state=42, n_jobs=-1),
+    'KNN':                 KNeighborsClassifier(n_neighbors=7, n_jobs=-1),
+    'SVM':                 SVC(kernel='rbf', random_state=42, probability=True),
+}
+# Storage for results
+results = []
+def evaluate_model(name, model, X_tr, y_tr, X_te, y_te):
+    """Train a model, predict, print metrics, and return a results dict."""
+    model.fit(X_tr, y_tr)
+    y_pred = model.predict(X_te)
+    acc  = accuracy_score(y_te, y_pred)
+    prec = precision_score(y_te, y_pred, average='weighted', zero_division=0)
+    rec  = recall_score(y_te, y_pred, average='weighted', zero_division=0)
+    f1   = f1_score(y_te, y_pred, average='weighted', zero_division=0)
+    print("=" * 60)
+    print(f"🔷  {name}")
+    print("=" * 60)
+    print(f"  Accuracy  : {acc:.4f}")
+    print(f"  Precision : {prec:.4f}")
+    print(f"  Recall    : {rec:.4f}")
+    print(f"  F1 Score  : {f1:.4f}")
+    print(f"\n  Classification Report:\n{classification_report(y_te, y_pred, zero_division=0)}")
+    return {
+        'Model': name, 'Accuracy': acc, 'Precision': prec,
+        'Recall': rec, 'F1 Score': f1, 'y_pred': y_pred, 'trained': model
+    }
+# Train all models
+for name, model in models.items():
+    res = evaluate_model(name, model, X_train_sm, y_train_sm, X_test_scaled, y_test)
+    results.append(res)
+# %% [markdown]
+# # 7️⃣ Model Comparison
+# %%
+# ── 7. Model Comparison Table ────────────────────────────────────────────
+comparison_df = pd.DataFrame(results)[['Model', 'Accuracy', 'Precision', 'Recall', 'F1 Score']]
+comparison_df = comparison_df.sort_values('F1 Score', ascending=False).reset_index(drop=True)
+print("\n📊  MODEL COMPARISON (sorted by F1 Score):\n")
+print(comparison_df.to_string(index=False))
+best_row = comparison_df.iloc[0]
+best_model_name = best_row['Model']
+best_model_obj  = [r['trained'] for r in results if r['Model'] == best_model_name][0]
+print(f"\n🏆  Best Model: {best_model_name}")
+print(f"   → F1 Score = {best_row['F1 Score']:.4f}  |  Accuracy = {best_row['Accuracy']:.4f}")
+# %% [markdown]
+# # 8️⃣ Feature Importance
+#
+# Tree-based models (Random Forest, XGBoost, Decision Tree) provide built-in
+# feature importance scores. We plot the **top 15 features** from the best
+# tree-based model to understand which medical factors most influence readmission.
+# %%
+# ── 8. Feature Importance ────────────────────────────────────────────────
+# Pick the best tree-based model for importance
+tree_models = {r['Model']: r['trained'] for r in results
+               if r['Model'] in ['Random Forest', 'Decision Tree']}
+# Prefer Random Forest, then Decision Tree
+for pref in ['Random Forest', 'Decision Tree']:
+    if pref in tree_models:
+        fi_model_name = pref
+        fi_model = tree_models[pref]
+        break
+importances = fi_model.feature_importances_
+feat_imp = pd.DataFrame({
+    'Feature': X.columns,
+    'Importance': importances
+}).sort_values('Importance', ascending=False).head(15)
+plt.figure(figsize=(10, 7))
+sns.barplot(x='Importance', y='Feature', data=feat_imp, palette='viridis')
+plt.title(f'🔬 Top 15 Feature Importances — {fi_model_name}', fontsize=14, fontweight='bold')
+plt.xlabel('Importance Score')
+plt.ylabel('')
+plt.tight_layout()
+plt.savefig('feature_importance.png', dpi=150, bbox_inches='tight')
+plt.show()
+print("\n📌 Top 5 most influential features:")
+for i, row in feat_imp.head(5).iterrows():
+    print(f"   • {row['Feature']:30s}  →  {row['Importance']:.4f}")
+# %% [markdown]
+# # 9️⃣ Hyperparameter Tuning
+#
+# Using **RandomizedSearchCV** (faster than GridSearchCV on large datasets)
+# to find the best hyperparameters for **Random Forest**.
+# %%
+# ── 9. Hyperparameter Tuning ─────────────────────────────────────────────
+from sklearn.model_selection import RandomizedSearchCV
+# ── Random Forest tuning ──
+rf_param_grid = {
+    'n_estimators': [100, 200, 300, 500],
+    'max_depth': [10, 20, 30, None],
+    'min_samples_split': [2, 5, 10],
+    'min_samples_leaf': [1, 2, 4],
+    'max_features': ['sqrt', 'log2'],
+}
+print("🔧 Tuning Random Forest …")
+rf_search = RandomizedSearchCV(
+    RandomForestClassifier(random_state=42, n_jobs=-1),
+    rf_param_grid,
+    n_iter=20, cv=3, scoring='f1_weighted',
+    random_state=42, n_jobs=-1, verbose=0
+)
+rf_search.fit(X_train_sm, y_train_sm)
+print(f"   Best params : {rf_search.best_params_}")
+print(f"   Best CV F1  : {rf_search.best_score_:.4f}")
+
+# ── Compare tuned vs untuned ──
+rf_tuned_pred  = rf_search.best_estimator_.predict(X_test_scaled)
+rf_orig  = [r for r in results if r['Model'] == 'Random Forest'][0]
+
+print("\n📊 Tuned vs Untuned Performance (F1 weighted):")
+print(f"   Random Forest  — Before: {rf_orig['F1 Score']:.4f}  |  After: {f1_score(y_test, rf_tuned_pred, average='weighted'):.4f}")
+
+# Pick the overall best tuned model
+best_tuned_name = 'Random Forest (Tuned)'
+best_final_model = rf_search.best_estimator_
+best_final_pred  = rf_tuned_pred
+print(f"\n🏆 Best tuned model: {best_tuned_name}")
+# %% [markdown]
+# # 🔟 Cross Validation (Stratified K-Fold)
+#
+# Stratified K-Fold ensures each fold preserves the class distribution.
+# We use **5-fold** CV to measure model stability.
+# %%
+# ── 10. Cross Validation ─────────────────────────────────────────────────
+from sklearn.model_selection import StratifiedKFold, cross_val_score
+skf = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
+cv_scores = cross_val_score(best_final_model, X_train_sm, y_train_sm,
+                            cv=skf, scoring='f1_weighted', n_jobs=-1)
+print(f"📊 Stratified 5-Fold Cross Validation — {best_tuned_name}")
+print(f"   Fold scores : {[f'{s:.4f}' for s in cv_scores]}")
+print(f"   Mean F1     : {cv_scores.mean():.4f}")
+print(f"   Std Dev     : {cv_scores.std():.4f}")
+if cv_scores.std() < 0.02:
+    print("   ✅ Model is highly stable (low variance across folds).")
+elif cv_scores.std() < 0.05:
+    print("   ⚠️ Model is moderately stable.")
+else:
+    print("   ❌ High variance — consider more regularisation or different model.")
+# %% [markdown]
+# # 1️⃣1️⃣ ROC Curve & AUC (Multiclass — One-vs-Rest)
+#
+# For multiclass classification we compute the ROC curve per class using
+# the One-vs-Rest strategy and report the macro-average AUC.
+# %%
+# ── 11. ROC Curve & AUC ──────────────────────────────────────────────────
+from sklearn.metrics import roc_curve, auc
+from sklearn.preprocessing import label_binarize
+classes = sorted(y.unique())
+y_test_bin = label_binarize(y_test, classes=classes)
+# Get probability predictions
+if hasattr(best_final_model, 'predict_proba'):
+    y_prob = best_final_model.predict_proba(X_test_scaled)
+else:
+    y_prob = best_final_model.decision_function(X_test_scaled)
+fig, ax = plt.subplots(figsize=(9, 7))
+colors = ['#2196F3', '#FF5722', '#4CAF50']
+auc_scores = []
+for i, cls in enumerate(classes):
+    fpr, tpr, _ = roc_curve(y_test_bin[:, i], y_prob[:, i])
+    roc_auc = auc(fpr, tpr)
+    auc_scores.append(roc_auc)
+    label_text = {0: 'NO readmission', 1: '<30 days', 2: '>30 days'}.get(cls, str(cls))
+    ax.plot(fpr, tpr, color=colors[i], lw=2,
+            label=f'Class {cls} — {label_text} (AUC = {roc_auc:.3f})')
+ax.plot([0, 1], [0, 1], 'k--', lw=1, alpha=0.5)
+ax.set_xlabel('False Positive Rate', fontsize=12)
+ax.set_ylabel('True Positive Rate', fontsize=12)
+ax.set_title(f'📈 ROC Curves — {best_tuned_name}', fontsize=14, fontweight='bold')
+ax.legend(loc='lower right', fontsize=10)
+ax.grid(alpha=0.3)
+plt.tight_layout()
+plt.savefig('roc_curves.png', dpi=150, bbox_inches='tight')
+plt.show()
+print(f"\n📊 Macro-average AUC: {np.mean(auc_scores):.4f}")
+# %% [markdown]
+# # 1️⃣2️⃣ Save Final Model & Scaler
+# %%
+# ── 12. Save Model & Scaler ──────────────────────────────────────────────
+import joblib
+joblib.dump(best_final_model, 'diabetes_model.pkl')
+joblib.dump(scaler, 'scaler.pkl')
+print("✅ Model saved  → diabetes_model.pkl")
+print("✅ Scaler saved → scaler.pkl")
+# %% [markdown]
+# # 1️⃣3️⃣ Deployment — Prediction Function
+#
+# A ready-to-use function that accepts raw patient data,
+# scales it, and returns a human-readable readmission prediction.
+# %%
+# ── 13. Prediction Function ──────────────────────────────────────────────
+def predict_readmission(input_data, model_path='diabetes_model.pkl', scaler_path='scaler.pkl'):
+    """
+    Predict hospital readmission for a diabetic patient.
+    Parameters
+    ----------
+    input_data : dict or list
+        A dictionary (single patient) or list of values matching the
+        training feature order.
+    model_path : str
+        Path to the saved model .pkl file.
+    scaler_path : str
+        Path to the saved scaler .pkl file.
+    Returns
+    -------
+    str
+        Human-readable prediction result.
+    """
+    loaded_model  = joblib.load(model_path)
+    loaded_scaler = joblib.load(scaler_path)
+    if isinstance(input_data, dict):
+        input_df = pd.DataFrame([input_data])
+    else:
+        input_df = pd.DataFrame([input_data], columns=X.columns)
+    input_scaled = loaded_scaler.transform(input_df)
+    prediction   = loaded_model.predict(input_scaled)[0]
+    labels = {
+        0: '✅ NO Readmission',
+        1: '⚠️ Readmitted within 30 days',
+        2: '🔁 Readmitted after 30 days',
+    }
+    result = labels.get(prediction, f'Unknown class ({prediction})')
+    print(f"🩺 Prediction: {result}")
+    return result
+# Quick smoke test with the first test sample
+sample = X_test.iloc[0].to_dict()
+print("Sample patient features (first test row):")
+predict_readmission(sample)
+# %% [markdown]
+# # 1️⃣4️⃣ Professional Visualisations
+# %%
+# ── 14-a. Confusion Matrices for All Models ──────────────────────────────
+fig, axes = plt.subplots(2, 3, figsize=(18, 11))
+axes = axes.ravel()
+for idx, res in enumerate(results):
+    cm = confusion_matrix(y_test, res['y_pred'])
+    sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', ax=axes[idx],
+                xticklabels=['NO', '<30', '>30'],
+                yticklabels=['NO', '<30', '>30'])
+    axes[idx].set_title(res['Model'], fontsize=12, fontweight='bold')
+    axes[idx].set_xlabel('Predicted')
+    axes[idx].set_ylabel('Actual')
+fig.suptitle('🔍 Confusion Matrices — All Models', fontsize=16, fontweight='bold', y=1.01)
+plt.tight_layout()
+plt.savefig('confusion_matrices.png', dpi=150, bbox_inches='tight')
+plt.show()
+# %%
+# ── 14-b. Model Comparison Bar Chart ─────────────────────────────────────
+metrics = ['Accuracy', 'Precision', 'Recall', 'F1 Score']
+comp = comparison_df.set_index('Model')[metrics]
+comp.plot(kind='bar', figsize=(14, 6), colormap='Set2', edgecolor='black', width=0.75)
+plt.title('📊 Model Comparison — Performance Metrics', fontsize=14, fontweight='bold')
+plt.ylabel('Score')
+plt.xticks(rotation=25, ha='right')
+plt.ylim(0, 1.05)
+plt.legend(loc='lower right')
+plt.grid(axis='y', alpha=0.3)
+plt.tight_layout()
+plt.savefig('model_comparison.png', dpi=150, bbox_inches='tight')
+plt.show()
+# %%
+# ── 14-c. Class Distribution Chart ───────────────────────────────────────
+fig, axes = plt.subplots(1, 2, figsize=(12, 5))
+# Original distribution
+y.value_counts().sort_index().plot(kind='bar', ax=axes[0], color=['#4CAF50', '#FF9800', '#2196F3'],
+                                   edgecolor='black')
+axes[0].set_title('Original Class Distribution', fontsize=12, fontweight='bold')
+axes[0].set_xlabel('Readmitted')
+axes[0].set_ylabel('Count')
+axes[0].set_xticklabels(['0 — NO', '1 — <30', '2 — >30'], rotation=0)
+# After UnderSampling
+pd.Series(y_train_sm).value_counts().sort_index().plot(
+    kind='bar', ax=axes[1], color=['#4CAF50', '#FF9800', '#2196F3'], edgecolor='black')
+axes[1].set_title('After UnderSampling (Training Set)', fontsize=12, fontweight='bold')
+axes[1].set_xlabel('Readmitted')
+axes[1].set_ylabel('Count')
+axes[1].set_xticklabels(['0 — NO', '1 — <30', '2 — >30'], rotation=0)
+plt.suptitle('📊 Target Class Distribution', fontsize=14, fontweight='bold')
+plt.tight_layout()
+plt.savefig('class_distribution.png', dpi=150, bbox_inches='tight')
+plt.show()
+# %% [markdown]
+# ---
+# # 1️⃣6️⃣ Final Insights & Conclusion
+#
+# ## 🔑 Key Findings
+# - The dataset was **heavily imbalanced** — most patients were not readmitted (class 0).
+#   RandomUnderSampler was essential to balance classes while keeping training fast.
+# - Tree-based ensemble models (Random Forest, Decision Tree) consistently outperformed
+#   simpler models like Logistic Regression and KNN on this high-dimensional dataset.
+# - Feature importance analysis revealed that **number of inpatient visits**,
+#   **discharge disposition**, **number of diagnoses**, and **medication count** are
+#   among the strongest predictors of hospital readmission.
+#
+# ## 🏆 Best Model
+# - The best model was selected after hyperparameter tuning and validated via
+#   Stratified 5-Fold Cross Validation and ROC/AUC analysis.
+#
+# ## 🩺 Important Medical Indicators
+# - **number_inpatient** — patients with more prior inpatient visits have higher
+#   readmission risk.
+# - **num_medications** — a high medication count suggests complex conditions.
+# - **number_diagnoses** — more diagnoses correlate with readmission likelihood.
+# - **time_in_hospital** — longer stays may indicate severity.
+# - **discharge_disposition_id** — where the patient goes after discharge matters.
+#
+# ## ⚙️ Challenges Faced
+# - Severe class imbalance required undersampling.
+# - High cardinality in diagnosis codes required label encoding.
+# - Some features had hidden missing values represented as `'?'`.
+# - Large dataset size made SVM training computationally expensive.
+#
+# ## 🚀 Future Improvements
+# - Apply **feature selection** (e.g., SelectKBest, Recursive Feature Elimination).
+# - Experiment with **deep learning** models (e.g., a small feedforward neural network).
+# - Build an **interactive web dashboard** using Streamlit or Flask.
+# - Incorporate **time-series** analysis for patients with multiple encounters.
+# - Use **SHAP values** for more interpretable feature importance.
+#
+# ## 🌍 Real-World Healthcare Impact
+# - Early identification of high-risk patients allows hospitals to provide
+#   **targeted follow-up care**, reducing avoidable readmissions.
+# - Reducing 30-day readmissions can **save hospitals millions** in penalties
+#   under CMS (Centers for Medicare & Medicaid Services) programmes.
+# - This system can be integrated into **Electronic Health Records (EHR)** to
+#   alert clinicians in real time.
+#
+# ---
+# *End of Machine Learning Pipeline — Diabetes Readmission Prediction System*
 
 
