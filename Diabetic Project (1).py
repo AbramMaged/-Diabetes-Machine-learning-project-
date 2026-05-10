@@ -3,6 +3,15 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
+import os
+import sys
+
+# Ensure the script runs in its own directory
+os.chdir(os.path.dirname(os.path.abspath(__file__)))
+
+# Fix UnicodeEncodeError for emojis in Windows console
+sys.stdout.reconfigure(encoding='utf-8')
+
 # %%
 df= pd.read_csv('diabetic_data.csv')
 
@@ -1203,9 +1212,3 @@ plt.show()
 #   under CMS (Centers for Medicare & Medicaid Services) programmes.
 # - This system can be integrated into **Electronic Health Records (EHR)** to
 #   alert clinicians in real time.
-#
-# ---
-# *End of Machine Learning Pipeline — Diabetes Readmission Prediction System*
-
-
-a
