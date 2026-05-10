@@ -3,9 +3,6 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
-import os
-import sys
-
 # %%
 df= pd.read_csv('diabetic_data.csv')
 
