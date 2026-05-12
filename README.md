@@ -33,7 +33,7 @@ pip install pandas numpy matplotlib seaborn scikit-learn imbalanced-learn joblib
 
 ## 📂 Project Structure
 
-```bash
+
 ├── diabetic_data.csv
 ├── diabetes_pipeline.py
 ├── README.md
@@ -182,7 +182,7 @@ The Random Forest model achieved the best performance:
 
 The best trained model was saved using joblib for future deployment and inference.
 
-ولو عندكم:
+
 
 ## Key Insights
 Feature importance analysis from the tuned Random Forest model revealed the strongest predictors of hospital readmission:
