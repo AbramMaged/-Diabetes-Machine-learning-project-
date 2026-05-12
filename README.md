@@ -174,9 +174,9 @@ The top-performing tree-based model (Random Forest) underwent hyperparameter opt
 
 The Random Forest model achieved the best performance:
 
-- Accuracy: XX%
-- F1 Score: XX%
-- ROC-AUC: XX%
+- Accuracy: 66%
+- F1 Score: 0.66
+- ROC-AUC: 0.73
 
 ## 💾 Model Serialization
 
