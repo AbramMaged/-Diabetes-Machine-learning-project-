@@ -1635,6 +1635,3 @@ plt.show()
 #   alert clinicians in real time.
 # #
 # ---
-git add .
-git commit -m "Fix Streamlit deployment"
-git push
