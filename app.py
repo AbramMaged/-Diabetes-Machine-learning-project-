@@ -1635,4 +1635,6 @@ plt.show()
 #   alert clinicians in real time.
 # #
 # ---
-# *End of Machine Learning Pipeline — Diabetes Readmission Prediction System*
+git add .
+git commit -m "Fix Streamlit deployment"
+git push
